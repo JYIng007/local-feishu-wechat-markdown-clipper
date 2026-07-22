@@ -212,12 +212,14 @@
     return Array.from(element.querySelectorAll(selector)).some((child) => child !== element && isBlockContentTag(getTagName(child)));
   }
 
-  function hasExtractableDescendant(element, selector) {
+  function hasNonInlineExtractableDescendant(element, selector) {
     if (typeof element.querySelectorAll !== "function") {
       return false;
     }
 
-    return Array.from(element.querySelectorAll(selector)).some((child) => child !== element);
+    return Array.from(element.querySelectorAll(selector)).some(
+      (child) => child !== element && getTagName(child) !== "span"
+    );
   }
 
   function getVisibleText(element) {
@@ -271,15 +273,20 @@
     let current = element.parentElement || null;
 
     while (current) {
+      const isReadableLeafContainer =
+        isTextContainerTag(getTagName(current)) &&
+        !hasDescendantBlockContent(current, selector) &&
+        (hasOwnReadableText(current) || !hasNonInlineExtractableDescendant(current, selector));
+
       if (current === rootElement) {
-        return isTextContainerTag(getTagName(current)) && !hasDescendantBlockContent(current, selector);
+        return isReadableLeafContainer;
       }
 
       if (isBlockContentTag(getTagName(current)) && hasDescendantBlockContent(current, selector)) {
         return false;
       }
 
-      if (isTextContainerTag(getTagName(current)) && !hasDescendantBlockContent(current, selector)) {
+      if (isReadableLeafContainer) {
         return true;
       }
 
@@ -378,7 +385,7 @@
         isTextContainerTag(tag) &&
         (hasKnownContentAncestor(node, rootElement) ||
           hasDescendantBlockContent(node, selector) ||
-          (!hasOwnReadableText(node) && hasExtractableDescendant(node, selector)) ||
+          (!hasOwnReadableText(node) && hasNonInlineExtractableDescendant(node, selector)) ||
           hasReadableInlineContainerAncestor(node, rootElement, selector))
       ) {
         continue;

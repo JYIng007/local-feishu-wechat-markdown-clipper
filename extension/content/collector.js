@@ -74,8 +74,9 @@
     return blocks.filter((block) => block && block.type === type).length;
   }
 
-  function resolveExtractor(element, core) {
+  function resolveExtractor(element, core, logger) {
     const adapters = [
+      { name: "wechat", api: root.DOMClipperWechatExtractor },
       { name: "scys-article", api: root.DOMClipperScysArticleExtractor },
       { name: "scys", api: root.DOMClipperScysExtractor },
       { name: "feishu", api: root.DOMClipperFeishuExtractor }
@@ -96,7 +97,7 @@
               ? api.getCollectionPolicy(element) || null
               : null,
           extractBlocks() {
-            return api.extractBlocks(element, core);
+            return api.extractBlocks(element, core, logger);
           },
           getScrollTarget() {
             return typeof api.getScrollTarget === "function"
@@ -125,7 +126,7 @@
     const fragments = [];
     const maxIdleRounds = Number.isFinite(options.maxIdleRounds) ? options.maxIdleRounds : 4;
     const waitMs = Number.isFinite(options.waitMs) ? options.waitMs : 900;
-    const extractor = resolveExtractor(element, core);
+    const extractor = resolveExtractor(element, core, logger);
     const target = getScrollTarget(element, core, extractor);
     const stableBottomPolicy = extractor.policy && extractor.policy.mode === "stable-bottom"
       ? extractor.policy

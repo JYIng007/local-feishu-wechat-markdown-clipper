@@ -32,7 +32,11 @@
       const url = new URL(value);
       const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
       const isScysHost = hostname === "scys.com" || hostname.endsWith(".scys.com");
-      return isScysHost && /^\/deepsea\/[^/]+\/course\/[^/]+\/?$/i.test(url.pathname);
+      return Boolean(
+        isScysHost &&
+          (/^\/deepsea\/[^/]+\/course\/[^/]+\/?$/i.test(url.pathname) ||
+            /^\/course\/detail\/[^/]+\/?$/i.test(url.pathname))
+      );
     } catch (_error) {
       return false;
     }
@@ -52,21 +56,24 @@
       return null;
     }
 
-    if (String(rootElement.tagName || "").toLowerCase() === "main" && hasCourseContent(rootElement)) {
+    if (
+      (String(rootElement.tagName || "").toLowerCase() === "main" || hasClass(rootElement, "vc-course-content")) &&
+      hasCourseContent(rootElement)
+    ) {
       return rootElement;
     }
 
     if (typeof rootElement.closest === "function") {
-      const main = rootElement.closest("main");
-      if (hasCourseContent(main)) {
-        return main;
+      const courseRoot = rootElement.closest("main,.vc-course-content");
+      if (hasCourseContent(courseRoot)) {
+        return courseRoot;
       }
     }
 
     if (typeof rootElement.querySelector === "function") {
-      const main = rootElement.querySelector("main");
-      if (hasCourseContent(main)) {
-        return main;
+      const courseRoot = rootElement.querySelector("main,.vc-course-content");
+      if (hasCourseContent(courseRoot)) {
+        return courseRoot;
       }
     }
 
@@ -89,6 +96,19 @@
     }
     const heading = courseRoot.querySelector("h1");
     return normalizeText(heading && heading.textContent);
+  }
+
+  function getScrollTarget(rootElement) {
+    const courseRoot = getCourseRoot(rootElement);
+    if (!courseRoot) {
+      return null;
+    }
+
+    if (hasClass(courseRoot, "vc-course-content") && typeof courseRoot.closest === "function") {
+      return courseRoot.closest(".course-scroll-container") || courseRoot;
+    }
+
+    return courseRoot;
   }
 
   function escapeLabel(value) {
@@ -383,12 +403,26 @@
     return blocks;
   }
 
+  function documentHeadingLevel(item) {
+    const headingClass = classNames(item).find((name) => /^doc-heading-[1-9]$/.test(name));
+    if (!headingClass) {
+      return 0;
+    }
+    return Math.min(Number(headingClass.slice("doc-heading-".length)) || 0, 6);
+  }
+
   function blockFromItem(item, core, itemIndex) {
     const images = imageBlocksFromItem(item, core, itemIndex);
     const blocks = [];
     const structuredBlock = extractCodeBlock(item) || extractDivTable(item);
+    const headingLevel = documentHeadingLevel(item);
 
-    if (structuredBlock) {
+    if (headingLevel) {
+      const text = normalizeText(serializeItemMarkdown(item));
+      if (text) {
+        blocks.push({ type: "heading", level: headingLevel, text });
+      }
+    } else if (structuredBlock) {
       blocks.push(structuredBlock);
     } else {
       const markdown = serializeItemMarkdown(item);
@@ -464,6 +498,7 @@
     supports,
     getCourseRoot,
     getDocumentTitle,
+    getScrollTarget,
     extractBlocks,
     getCollectionPolicy
   };

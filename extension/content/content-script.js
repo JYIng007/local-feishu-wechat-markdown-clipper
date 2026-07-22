@@ -83,6 +83,7 @@
 
   function getReadableTitle(documentRef) {
     const adapters = [
+      root.DOMClipperWechatExtractor,
       root.DOMClipperScysArticleExtractor,
       root.DOMClipperScysExtractor,
       root.DOMClipperFeishuExtractor

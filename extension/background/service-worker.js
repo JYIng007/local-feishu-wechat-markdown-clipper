@@ -346,6 +346,9 @@ if (typeof importScripts === "function") {
       files: [
         "dom-clipper-core.js",
         "extension/shared/logger.js",
+        "extension/vendor/turndown.js",
+        "extension/vendor/turndown-plugin-gfm.js",
+        "extension/content/wechat-extractor.js",
         "extension/content/scys-article-extractor.js",
         "extension/content/scys-extractor.js",
         "extension/content/feishu-extractor.js",
