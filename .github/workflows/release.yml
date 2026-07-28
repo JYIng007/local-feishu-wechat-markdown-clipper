@@ -1,0 +1,60 @@
+name: Release extension
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest_version="$(node -p "require('./manifest.json').version")"
+          expected_tag="v${manifest_version}"
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match manifest version ${manifest_version}."
+            exit 1
+          fi
+
+      - name: Build release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_name="local-feishu-wechat-markdown-clipper-${GITHUB_REF_NAME}"
+          staging_dir="${RUNNER_TEMP}/${package_name}"
+          archive_name="${package_name}.zip"
+
+          mkdir -p "${staging_dir}"
+          cp manifest.json dom-clipper-core.js "${staging_dir}/"
+          cp -R extension "${staging_dir}/extension"
+          cp README.md CHANGELOG.md LICENSE PRIVACY.md SECURITY.md "${staging_dir}/"
+
+          (
+            cd "${RUNNER_TEMP}"
+            zip -r -9 "${GITHUB_WORKSPACE}/${archive_name}" "${package_name}"
+          )
+          sha256sum "${archive_name}" > "${archive_name}.sha256"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="local-feishu-wechat-markdown-clipper-${GITHUB_REF_NAME}.zip"
+          gh release create "${GITHUB_REF_NAME}" \
+            "${archive_name}" \
+            "${archive_name}.sha256" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
