@@ -81,6 +81,13 @@
     return root.location && root.location.href ? root.location.href : "";
   }
 
+  function combineLogText(...values) {
+    return values
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+
   function getReadableTitle(documentRef) {
     const adapters = [
       root.DOMClipperWechatExtractor,
@@ -366,7 +373,7 @@
         updatePanelView(panelApi, {
           mode: "error",
           status: `ZIP failed: ${(response && response.error) || "unknown error"}`,
-          logText: (response && response.logText) || logger.toText()
+          logText: combineLogText(logger.toText(), response && response.logText)
         });
         return;
       }
@@ -374,7 +381,7 @@
       updatePanelView(panelApi, {
         mode: "exported",
         status: `ZIP downloaded: ${response.filename}`,
-        logText: response.logText || logger.toText()
+        logText: combineLogText(logger.toText(), response.logText)
       });
     } catch (error) {
       const message = error && error.message ? error.message : String(error);

@@ -74,6 +74,14 @@
     return blocks.filter((block) => block && block.type === type).length;
   }
 
+  function serializeBlocks(blocks) {
+    try {
+      return JSON.stringify(blocks || []);
+    } catch (_error) {
+      return String((blocks || []).length);
+    }
+  }
+
   function resolveExtractor(element, core, logger) {
     const adapters = [
       { name: "wechat", api: root.DOMClipperWechatExtractor },
@@ -131,6 +139,7 @@
     const stableBottomPolicy = extractor.policy && extractor.policy.mode === "stable-bottom"
       ? extractor.policy
       : null;
+    const strictStability = Boolean(stableBottomPolicy && stableBottomPolicy.strictStability);
     const useLatestSnapshot = extractor.policy && extractor.policy.mergeMode === "latest";
     const effectiveWaitMs = Number.isFinite(options.waitMs)
       ? options.waitMs
@@ -145,6 +154,7 @@
       : Number.POSITIVE_INFINITY;
     let idleRounds = 0;
     let previousCount = 0;
+    let previousSnapshot = null;
     let previousMaxScrollTop = getMaxScrollTop(target);
     let round = 0;
 
@@ -180,11 +190,17 @@
       const imageCount = countBlocks(merged.blocks, "image");
       const linkCount = countBlocks(merged.blocks, "link");
       const removedCount = Math.max(0, beforeCount - afterCount);
+      const snapshot = strictStability ? serializeBlocks(blocks) : null;
+      const snapshotChanged = strictStability && snapshot !== previousSnapshot;
 
-      const contentChanged = afterCount !== previousCount;
+      const blockCountChanged = afterCount !== previousCount;
+      const contentChanged = blockCountChanged || snapshotChanged;
       if (contentChanged) {
         idleRounds = 0;
         previousCount = afterCount;
+      }
+      if (strictStability) {
+        previousSnapshot = snapshot;
       }
 
       const moved = scrollByStep(target);
@@ -193,6 +209,7 @@
       const atBottom = maxScrollTop - scrollTop <= 2;
 
       if (stableBottomPolicy) {
+        const heightChanged = Math.abs(maxScrollTop - previousMaxScrollTop) > 2;
         if (maxScrollTop > previousMaxScrollTop + 2) {
           logger.info("scroll", "content expanded", {
             previousMaxScrollTop: Math.round(previousMaxScrollTop),
@@ -201,18 +218,25 @@
           });
         }
         previousMaxScrollTop = maxScrollTop;
-        if (!contentChanged && atBottom) {
+        if (strictStability && (contentChanged || heightChanged || !atBottom)) {
+          idleRounds = 0;
+        } else if (!contentChanged && atBottom) {
           idleRounds += 1;
         } else if (!atBottom) {
           idleRounds = 0;
         }
-        logger.info("scroll", `round=${round}`, {
+        const scrollDetails = {
           moved,
           blocks: previousCount,
           stableBottomRounds: idleRounds,
           scrollTop: Math.round(scrollTop),
           maxScrollTop: Math.round(maxScrollTop)
-        });
+        };
+        if (strictStability) {
+          scrollDetails.snapshotChanged = snapshotChanged;
+          scrollDetails.heightChanged = heightChanged;
+        }
+        logger.info("scroll", `round=${round}`, scrollDetails);
       } else {
         if (!contentChanged) {
           idleRounds += 1;
@@ -247,6 +271,9 @@
         };
         if (stableBottomPolicy) {
           progress.stableBottomRounds = idleRounds;
+          if (strictStability) {
+            progress.snapshotChanged = snapshotChanged;
+          }
         }
         options.onProgress(progress);
       }

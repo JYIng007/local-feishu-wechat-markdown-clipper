@@ -488,8 +488,8 @@
   function getCollectionPolicy() {
     return {
       mode: "stable-bottom",
-      maxStableBottomRounds: 4,
-      maxRounds: 400,
+      maxStableBottomRounds: 10,
+      strictStability: true,
       waitMs: 1000
     };
   }
