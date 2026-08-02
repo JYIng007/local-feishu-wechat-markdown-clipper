@@ -14,6 +14,21 @@
       return wechatRoot;
     }
 
+    const scysExtractor = root.DOMClipperScysExtractor;
+    const documentRoot = documentRef && (documentRef.documentElement || documentRef.body);
+    const scysRoot =
+      scysExtractor && typeof scysExtractor.getCourseRoot === "function"
+        ? scysExtractor.getCourseRoot(documentRoot)
+        : null;
+    if (
+      scysRoot &&
+      typeof scysExtractor.supports === "function" &&
+      scysExtractor.supports(scysRoot)
+    ) {
+      logger.info("area", "auto selected", { success: true, adapter: "scys" });
+      return scysRoot;
+    }
+
     const best = core.findBestContentElement(documentRef);
 
     if (best) {

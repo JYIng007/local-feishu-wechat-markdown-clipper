@@ -78,7 +78,32 @@
   }
 
   function getLocationHref() {
-    return root.location && root.location.href ? root.location.href : "";
+    const currentUrl = root.location && root.location.href ? root.location.href : "";
+    const documentRef = getDocument();
+    const referrer = documentRef && documentRef.referrer ? documentRef.referrer : "";
+
+    try {
+      const current = new URL(currentUrl);
+      const visible = new URL(referrer);
+      const currentHost = current.hostname.toLowerCase().replace(/\.$/, "");
+      const visibleHost = visible.hostname.toLowerCase().replace(/\.$/, "");
+      const isScysHost = (hostname) => hostname === "scys.com" || hostname.endsWith(".scys.com");
+      const isEmbeddedCourse = /^\/course\/detail\/[^/]+\/?$/i.test(current.pathname);
+      const isActivityCourse = /^\/activity\/[^/]+\/course\/[^/]+\/?$/i.test(visible.pathname);
+
+      if (
+        isScysHost(currentHost) &&
+        isScysHost(visibleHost) &&
+        isEmbeddedCourse &&
+        isActivityCourse
+      ) {
+        return visible.href;
+      }
+    } catch (_error) {
+      // Normal top-level pages have no referrer and use their current URL.
+    }
+
+    return currentUrl;
   }
 
   function combineLogText(...values) {
@@ -609,7 +634,7 @@
   }
 
   root.DOMClipperContent = Object.assign(existingContent, {
-    version: "0.3.1",
+    version: "0.3.2",
     initialized: true,
     autoStart,
     start,

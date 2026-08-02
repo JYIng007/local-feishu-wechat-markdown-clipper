@@ -336,13 +336,52 @@ if (typeof importScripts === "function") {
     };
   }
 
+  function inspectFrameForContent() {
+    try {
+      const url = new URL(globalThis.location.href);
+      const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+      const isScysHost = hostname === "scys.com" || hostname.endsWith(".scys.com");
+      const isCourseUrl =
+        /^\/deepsea\/[^/]+\/course\/[^/]+\/?$/i.test(url.pathname) ||
+        /^\/course\/detail\/[^/]+\/?$/i.test(url.pathname);
+      const hasCourseContent = Boolean(
+        globalThis.document &&
+          globalThis.document.querySelector(".vc-course-content .feishu-doc-content .vc-doc-item")
+      );
+
+      return { isScysCourseContent: isScysHost && isCourseUrl && hasCourseContent };
+    } catch (_error) {
+      return { isScysCourseContent: false };
+    }
+  }
+
+  async function findContentFrameId(tabId) {
+    try {
+      const results = await root.chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: inspectFrameForContent
+      });
+      const courseFrame = (results || []).find(
+        (entry) => entry && entry.result && entry.result.isScysCourseContent
+      );
+      return courseFrame && Number.isInteger(courseFrame.frameId) ? courseFrame.frameId : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
   async function injectContentScripts(tab) {
     if (!tab || !tab.id || !root.chrome || !root.chrome.scripting) {
       return;
     }
 
+    const frameId = await findContentFrameId(tab.id);
+    const target = Number.isInteger(frameId)
+      ? { tabId: tab.id, frameIds: [frameId] }
+      : { tabId: tab.id };
+
     await root.chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target,
       files: [
         "dom-clipper-core.js",
         "extension/shared/logger.js",
