@@ -639,7 +639,8 @@
 
     if (block.type === "quote") {
       const text = escapeMarkdownText(block.markdown || block.text);
-      return text ? text.split("\n").map((line) => `> ${line}`).join("\n") : "";
+      const indent = "    ".repeat(normalizeListDepth(block.depth));
+      return text ? text.split("\n").map((line) => `${indent}> ${line}`).join("\n") : "";
     }
 
     if (block.type === "code") {

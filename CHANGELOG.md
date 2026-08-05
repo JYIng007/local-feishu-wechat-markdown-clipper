@@ -2,6 +2,12 @@
 
 All notable public changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed incomplete content extraction on some course pages.
+
 ## [0.3.3] - 2026-08-05
 
 ### Fixed

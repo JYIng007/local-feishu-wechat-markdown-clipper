@@ -225,6 +225,15 @@
     });
   }
 
+  function directDescendant(item, selector) {
+    if (!item || typeof item.querySelectorAll !== "function") {
+      return null;
+    }
+    return Array.from(item.querySelectorAll(selector)).find((node) => {
+      return typeof node.closest !== "function" || node.closest(".vc-doc-item") === item;
+    }) || null;
+  }
+
   function nearestItemAncestor(item) {
     let current = item && item.parentElement;
     while (current) {
@@ -274,7 +283,7 @@
   }
 
   function serializeItemMarkdown(item) {
-    const bulletText = item.querySelector && item.querySelector(".bulletlist");
+    const bulletText = directDescendant(item, ".bulletlist");
     if (bulletText) {
       return normalizeMarkdown(serializeInline(bulletText));
     }
@@ -298,8 +307,9 @@
   function isListItem(item) {
     return Boolean(
       item &&
-        typeof item.querySelector === "function" &&
-        (item.querySelector(".bullet_container") || item.querySelector(".bullet-dot") || item.querySelector(".bulletlist"))
+        (directDescendant(item, ".bullet_container") ||
+          directDescendant(item, ".bullet-dot") ||
+          directDescendant(item, ".bulletlist"))
     );
   }
 
@@ -387,17 +397,19 @@
     return { type: "table", rows };
   }
 
-  function imageBlocksFromItem(item, core, itemIndex) {
+  function imageBlocksFromItem(item, core, sourcePrefix, directOnly) {
     if (!item || typeof item.querySelectorAll !== "function") {
       return [];
     }
 
     const blocks = [];
-    const images = Array.from(item.querySelectorAll("img"));
+    const images = Array.from(item.querySelectorAll("img")).filter((image) => {
+      return !directOnly || typeof image.closest !== "function" || image.closest(".vc-doc-item") === item;
+    });
     for (let index = 0; index < images.length; index += 1) {
       const extracted = core.extractBlocksFromElement(images[index]).find((block) => block.type === "image");
       if (extracted) {
-        blocks.push(Object.assign({}, extracted, { sourceId: `scys:${itemIndex}:image:${index}` }));
+        blocks.push(Object.assign({}, extracted, { sourceId: `${sourcePrefix}:image:${index}` }));
       }
     }
     return blocks;
@@ -411,10 +423,11 @@
     return Math.min(Number(headingClass.slice("doc-heading-".length)) || 0, 6);
   }
 
-  function blockFromItem(item, core, itemIndex) {
-    const images = imageBlocksFromItem(item, core, itemIndex);
+  function blockFromItem(item, core, sourcePrefix, listDepth, directImagesOnly) {
+    const images = imageBlocksFromItem(item, core, sourcePrefix, directImagesOnly);
     const blocks = [];
-    const structuredBlock = extractCodeBlock(item) || extractDivTable(item);
+    const listItem = isListItem(item);
+    const structuredBlock = listItem ? null : extractCodeBlock(item) || extractDivTable(item);
     const headingLevel = documentHeadingLevel(item);
 
     if (headingLevel) {
@@ -429,10 +442,14 @@
       const text = normalizeText(markdown.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/<br>/g, " ").replace(/[*~]/g, ""));
 
       if (markdown && text) {
-        if (isListItem(item)) {
-          blocks.push({ type: "listItem", text, markdown, ordered: isOrderedListItem(item), depth: 0 });
+        if (listItem) {
+          blocks.push({ type: "listItem", text, markdown, ordered: isOrderedListItem(item), depth: listDepth });
         } else if (isQuoteItem(item) || isCalloutItem(item)) {
-          blocks.push({ type: "quote", text, markdown: markdown.replace(/<br>/g, "\n") });
+          const quote = { type: "quote", text, markdown: markdown.replace(/<br>/g, "\n") };
+          if (listDepth > 0) {
+            quote.depth = listDepth;
+          }
+          blocks.push(quote);
         } else {
           blocks.push({ type: "paragraph", text, markdown });
         }
@@ -440,6 +457,28 @@
     }
 
     blocks.push(...images);
+    return blocks;
+  }
+
+  function blocksFromItemTree(item, core, itemIndex, listDepth, path) {
+    const nestedItems = directNestedItems(item);
+    const recurseIntoChildren = isListItem(item) && nestedItems.length > 0;
+    const suffix = path.length > 0 ? `:nested:${path.join(".")}` : "";
+    const blocks = blockFromItem(
+      item,
+      core,
+      `scys:${itemIndex}${suffix}`,
+      listDepth,
+      recurseIntoChildren
+    );
+
+    if (!recurseIntoChildren) {
+      return blocks;
+    }
+
+    for (let index = 0; index < nestedItems.length; index += 1) {
+      blocks.push(...blocksFromItemTree(nestedItems[index], core, itemIndex, listDepth + 1, path.concat(index)));
+    }
     return blocks;
   }
 
@@ -479,7 +518,7 @@
       }
 
       itemIndex += 1;
-      blocks.push(...blockFromItem(node, core, itemIndex));
+      blocks.push(...blocksFromItemTree(node, core, itemIndex, 0, []));
     }
 
     return core.removeDuplicateBlocks(blocks);
