@@ -509,6 +509,65 @@
     return { blocks: merged };
   }
 
+  function mergeOrderedSnapshots(existingBlocks, snapshotBlocks) {
+    const merged = removeDuplicateBlocks(existingBlocks || []).map((block) => Object.assign({}, block));
+    const snapshot = removeDuplicateBlocks(snapshotBlocks || []);
+
+    if (merged.length === 0) {
+      return { blocks: snapshot.map((block) => Object.assign({}, block)) };
+    }
+
+    function buildIndex() {
+      const indexByKey = new Map();
+      for (let index = 0; index < merged.length; index += 1) {
+        indexByKey.set(blockKey(merged[index]), index);
+      }
+      return indexByKey;
+    }
+
+    let indexByKey = buildIndex();
+    let previousKey = "";
+
+    for (let snapshotIndex = 0; snapshotIndex < snapshot.length; snapshotIndex += 1) {
+      const block = snapshot[snapshotIndex];
+      const key = blockKey(block);
+      const existingIndex = indexByKey.get(key);
+
+      if (existingIndex !== undefined) {
+        if (block && block.sourceId) {
+          merged[existingIndex] = chooseStableBlock(merged[existingIndex], block);
+        }
+        previousKey = key;
+        continue;
+      }
+
+      const previousIndex = previousKey ? indexByKey.get(previousKey) : undefined;
+      let nextIndex;
+      for (let lookahead = snapshotIndex + 1; lookahead < snapshot.length; lookahead += 1) {
+        const candidateIndex = indexByKey.get(blockKey(snapshot[lookahead]));
+        if (candidateIndex !== undefined) {
+          nextIndex = candidateIndex;
+          break;
+        }
+      }
+
+      let insertionIndex = merged.length;
+      if (nextIndex !== undefined && (previousIndex === undefined || previousIndex < nextIndex)) {
+        insertionIndex = nextIndex;
+      } else if (previousIndex !== undefined) {
+        insertionIndex = previousIndex + 1;
+      } else if (nextIndex !== undefined) {
+        insertionIndex = nextIndex;
+      }
+
+      merged.splice(insertionIndex, 0, Object.assign({}, block));
+      indexByKey = buildIndex();
+      previousKey = key;
+    }
+
+    return { blocks: merged };
+  }
+
   function escapeMarkdownText(value) {
     return String(value || "").replace(/\r\n/g, "\n").trim();
   }
@@ -760,6 +819,7 @@
     extractBlocksFromElement,
     removeDuplicateBlocks,
     mergeFragments,
+    mergeOrderedSnapshots,
     mergeOverlappingText,
     toMarkdown,
     sanitizeFilename,

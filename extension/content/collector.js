@@ -118,7 +118,7 @@
 
     return {
       name: "generic",
-      policy: null,
+      policy: { mergeMode: "ordered" },
       extractBlocks() {
         return core.extractBlocksFromElement(element);
       },
@@ -141,6 +141,11 @@
       : null;
     const strictStability = Boolean(stableBottomPolicy && stableBottomPolicy.strictStability);
     const useLatestSnapshot = extractor.policy && extractor.policy.mergeMode === "latest";
+    const useOrderedSnapshots = Boolean(
+      extractor.policy &&
+        extractor.policy.mergeMode === "ordered" &&
+        typeof core.mergeOrderedSnapshots === "function"
+    );
     const effectiveWaitMs = Number.isFinite(options.waitMs)
       ? options.waitMs
       : stableBottomPolicy && Number.isFinite(stableBottomPolicy.waitMs)
@@ -157,6 +162,8 @@
     let previousSnapshot = null;
     let previousMaxScrollTop = getMaxScrollTop(target);
     let round = 0;
+    let orderedResult = { blocks: [] };
+    let orderedInputCount = 0;
 
     logger.info("extract", "adapter", { name: extractor.name });
     const startingScrollTop = getScrollTop(target);
@@ -178,13 +185,22 @@
     ) {
       round += 1;
       const blocks = extractor.extractBlocks();
+      let merged;
+      let beforeCount;
       if (useLatestSnapshot) {
         fragments.splice(0, fragments.length, { blocks });
+        merged = core.mergeFragments(fragments);
+        beforeCount = blocks.length;
+      } else if (useOrderedSnapshots) {
+        orderedInputCount += blocks.length;
+        orderedResult = core.mergeOrderedSnapshots(orderedResult.blocks, blocks);
+        merged = orderedResult;
+        beforeCount = orderedInputCount;
       } else {
         fragments.push({ blocks });
+        merged = core.mergeFragments(fragments);
+        beforeCount = fragments.reduce((total, fragment) => total + fragment.blocks.length, 0);
       }
-      const merged = core.mergeFragments(fragments);
-      const beforeCount = fragments.reduce((total, fragment) => total + fragment.blocks.length, 0);
       const afterCount = merged.blocks.length;
       const paragraphCount = countBlocks(blocks, "paragraph");
       const imageCount = countBlocks(merged.blocks, "image");
@@ -300,7 +316,7 @@
       logger.info("scroll", "stopped", { reason: "idle", blocks: previousCount, idleRounds });
     }
 
-    return core.mergeFragments(fragments);
+    return useOrderedSnapshots ? orderedResult : core.mergeFragments(fragments);
   }
 
   root.DOMClipperCollector = {

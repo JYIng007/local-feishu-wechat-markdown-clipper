@@ -488,6 +488,7 @@
   function getCollectionPolicy() {
     return {
       mode: "stable-bottom",
+      mergeMode: "ordered",
       maxStableBottomRounds: 10,
       strictStability: true,
       waitMs: 1000

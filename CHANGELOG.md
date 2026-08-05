@@ -2,6 +2,12 @@
 
 All notable public changes to this project are documented here.
 
+## [0.3.3] - 2026-08-05
+
+### Fixed
+
+- Fixed content order on some dynamically loaded pages.
+
 ## [0.3.2] - 2026-08-02
 
 ### Fixed
