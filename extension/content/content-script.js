@@ -634,7 +634,7 @@
   }
 
   root.DOMClipperContent = Object.assign(existingContent, {
-    version: "0.3.3",
+    version: "0.4.0",
     initialized: true,
     autoStart,
     start,

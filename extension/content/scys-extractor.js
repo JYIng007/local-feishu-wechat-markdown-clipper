@@ -397,6 +397,28 @@
     return { type: "table", rows };
   }
 
+  function rawImageSource(image) {
+    return String(
+      (image && (image.currentSrc || image.src)) ||
+        (image && typeof image.getAttribute === "function" &&
+          (image.getAttribute("data-src") || image.getAttribute("src"))) ||
+        ""
+    ).trim();
+  }
+
+  function isBodyImage(image) {
+    const source = rawImageSource(image);
+    if (!source || /^data:image\//i.test(source)) {
+      return false;
+    }
+    try {
+      const url = new URL(source, "https://scys.com/");
+      return !/\/images\/docx\/link\.png$/i.test(url.pathname);
+    } catch (_error) {
+      return true;
+    }
+  }
+
   function imageBlocksFromItem(item, core, sourcePrefix, directOnly) {
     if (!item || typeof item.querySelectorAll !== "function") {
       return [];
@@ -404,7 +426,10 @@
 
     const blocks = [];
     const images = Array.from(item.querySelectorAll("img")).filter((image) => {
-      return !directOnly || typeof image.closest !== "function" || image.closest(".vc-doc-item") === item;
+      const belongsToItem = !directOnly ||
+        typeof image.closest !== "function" ||
+        image.closest(".vc-doc-item") === item;
+      return belongsToItem && isBodyImage(image);
     });
     for (let index = 0; index < images.length; index += 1) {
       const extracted = core.extractBlocksFromElement(images[index]).find((block) => block.type === "image");
@@ -413,6 +438,55 @@
       }
     }
     return blocks;
+  }
+
+  function videoBlockFromItem(item, sourcePrefix, directOnly) {
+    if (!item || typeof item.querySelectorAll !== "function") {
+      return null;
+    }
+
+    const container = Array.from(item.querySelectorAll(".block-file.video")).find((candidate) => {
+      const ownerItem = typeof candidate.closest === "function"
+        ? candidate.closest(".vc-doc-item")
+        : item;
+      return ownerItem === item || (!directOnly && nearestItemAncestor(ownerItem) === item);
+    });
+    if (!container || typeof container.querySelector !== "function") {
+      return null;
+    }
+
+    const video = container.querySelector("video.video-preview");
+    const containerItem = typeof container.closest === "function"
+      ? container.closest(".vc-doc-item")
+      : item;
+    if (!video || (typeof video.closest === "function" && video.closest(".vc-doc-item") !== containerItem)) {
+      return null;
+    }
+
+    const source = String(
+      video.currentSrc ||
+        video.src ||
+        (typeof video.getAttribute === "function" && video.getAttribute("src")) ||
+        ""
+    ).trim();
+    const baseUrl = (item.ownerDocument && item.ownerDocument.baseURI) || "";
+    let url;
+    try {
+      url = new URL(source, baseUrl);
+    } catch (_error) {
+      return null;
+    }
+    if (url.protocol !== "https:") {
+      return null;
+    }
+
+    const titleNode = container.querySelector(".title span") || container.querySelector(".title");
+    return {
+      type: "video",
+      src: url.href,
+      text: normalizeText(titleNode && titleNode.textContent) || "Video",
+      sourceId: `${sourcePrefix}:video:0`
+    };
   }
 
   function documentHeadingLevel(item) {
@@ -425,12 +499,15 @@
 
   function blockFromItem(item, core, sourcePrefix, listDepth, directImagesOnly) {
     const images = imageBlocksFromItem(item, core, sourcePrefix, directImagesOnly);
+    const video = videoBlockFromItem(item, sourcePrefix, directImagesOnly);
     const blocks = [];
     const listItem = isListItem(item);
     const structuredBlock = listItem ? null : extractCodeBlock(item) || extractDivTable(item);
     const headingLevel = documentHeadingLevel(item);
 
-    if (headingLevel) {
+    if (video) {
+      blocks.push(video);
+    } else if (headingLevel) {
       const text = normalizeText(serializeItemMarkdown(item));
       if (text) {
         blocks.push({ type: "heading", level: headingLevel, text });

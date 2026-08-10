@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Local Markdown Clipper for Feishu & WeChat",
-  "version": "0.3.3",
-  "description": "Save readable Feishu, WeChat, and web content as Markdown with local images.",
+  "version": "0.4.0",
+  "description": "Save readable Feishu, WeChat, and web content as Markdown with local media.",
   "permissions": ["activeTab", "downloads", "scripting"],
   "host_permissions": ["<all_urls>"],
   "action": {

@@ -11,6 +11,7 @@ if (typeof importScripts === "function") {
   const IMAGE_FETCH_TIMEOUT_MS = 15 * 1000;
   const IMAGE_FETCH_CONCURRENCY = 4;
   const IMAGE_LOCALIZATION_DEADLINE_MS = 210 * 1000;
+  const VIDEO_FETCH_TIMEOUT_MS = 180 * 1000;
   const BINARY_TYPE_BY_CONTENT_TYPE = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
@@ -105,19 +106,19 @@ if (typeof importScripts === "function") {
     );
   }
 
-  function validateImageRequest(src, pageUrl) {
+  function validateMediaRequest(src, pageUrl, resourceType) {
     let url;
     try {
       url = pageUrl ? new URL(src, pageUrl) : new URL(src);
     } catch (_error) {
-      return { ok: false, reason: "unsafe image URL: invalid URL" };
+      return { ok: false, reason: `unsafe ${resourceType} URL: invalid URL` };
     }
 
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return { ok: false, reason: "unsafe image URL: unsupported protocol" };
+      return { ok: false, reason: `unsafe ${resourceType} URL: unsupported protocol` };
     }
     if (url.username || url.password) {
-      return { ok: false, reason: "unsafe image URL: embedded credentials" };
+      return { ok: false, reason: `unsafe ${resourceType} URL: embedded credentials` };
     }
 
     const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
@@ -128,7 +129,7 @@ if (typeof importScripts === "function") {
       isPrivateIpv4(hostname) ||
       isPrivateIpv6(hostname)
     ) {
-      return { ok: false, reason: "unsafe image URL: local or private destination" };
+      return { ok: false, reason: `unsafe ${resourceType} URL: local or private destination` };
     }
 
     let credentials = "omit";
@@ -144,6 +145,14 @@ if (typeof importScripts === "function") {
     return { ok: true, url, credentials };
   }
 
+  function validateImageRequest(src, pageUrl) {
+    return validateMediaRequest(src, pageUrl, "image");
+  }
+
+  function validateVideoRequest(src, pageUrl) {
+    return validateMediaRequest(src, pageUrl, "video");
+  }
+
   function isSameFeishuSite(pageUrl, imageUrl) {
     const pageHostname = String(pageUrl && pageUrl.hostname || "").toLowerCase().replace(/\.$/, "");
     const imageHostname = String(imageUrl && imageUrl.hostname || "").toLowerCase().replace(/\.$/, "");
@@ -156,6 +165,21 @@ if (typeof importScripts === "function") {
 
   function bytesMatch(data, offset, expected) {
     return expected.every((byte, index) => data[offset + index] === byte);
+  }
+
+  function matchesMp4Signature(data) {
+    return data.length >= 12 && bytesMatch(data, 4, [0x66, 0x74, 0x79, 0x70]);
+  }
+
+  function safeLogUrl(value) {
+    try {
+      const url = new URL(value);
+      url.search = "";
+      url.hash = "";
+      return url.href;
+    } catch (_error) {
+      return "invalid-url";
+    }
   }
 
   function matchesImageSignature(type, data) {
@@ -533,6 +557,71 @@ if (typeof importScripts === "function") {
     }
   }
 
+  async function fetchVideo(video, index, deps) {
+    const { logger, pageUrl, timing, utils } = getDeps(deps);
+    const originalSrc = video && video.src ? video.src : "";
+    const logUrl = safeLogUrl(originalSrc);
+    const request = validateVideoRequest(originalSrc, pageUrl);
+
+    if (!request.ok) {
+      logger.warn("video", "failed", { index: index + 1, reason: request.reason, url: logUrl });
+      return { originalSrc, ok: false, reason: request.reason };
+    }
+
+    const controller = new root.AbortController();
+    let abortReason = "";
+    const timeoutId = timing.setTimeout(() => {
+      abortReason = `timeout after ${VIDEO_FETCH_TIMEOUT_MS}ms`;
+      controller.abort();
+    }, VIDEO_FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await root.fetch(request.url.href, {
+        credentials: request.credentials,
+        redirect: "error",
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        const reason = `status=${response.status}`;
+        logger.warn("video", "failed", { index: index + 1, reason, url: logUrl });
+        return { originalSrc, ok: false, reason };
+      }
+
+      const contentType = response.headers && response.headers.get
+        ? response.headers.get("content-type") || ""
+        : "";
+      const normalizedContentType = String(contentType).split(";")[0].trim().toLowerCase();
+      const supportedContentTypes = new Set(["", "video/mp4", "application/mp4", "application/octet-stream"]);
+      if (!supportedContentTypes.has(normalizedContentType)) {
+        const reason = `unexpected content-type=${normalizedContentType}`;
+        logger.warn("video", "failed", { index: index + 1, reason, url: logUrl });
+        return { originalSrc, ok: false, reason };
+      }
+
+      const data = new Uint8Array(await response.arrayBuffer());
+      if (!matchesMp4Signature(data)) {
+        const reason = "video signature mismatch expected=mp4";
+        logger.warn("video", "failed", { index: index + 1, reason, url: logUrl });
+        return { originalSrc, ok: false, reason };
+      }
+
+      const fileName = utils.videoFileName(index);
+      logger.info("video", "success", {
+        index: index + 1,
+        fileName,
+        bytes: data.length,
+        url: logUrl
+      });
+      return { originalSrc, ok: true, fileName, data };
+    } catch (error) {
+      const reason = abortReason || errorMessage(error);
+      logger.warn("video", "failed", { index: index + 1, reason, url: logUrl });
+      return { originalSrc, ok: false, reason };
+    } finally {
+      timing.clearTimeout(timeoutId);
+    }
+  }
+
   async function buildExportZip(payload, deps) {
     const resolvedDeps = getDeps(deps);
     const { core, logger, utils, zipWriter } = resolvedDeps;
@@ -541,7 +630,9 @@ if (typeof importScripts === "function") {
     const blocks = Array.isArray(data.blocks) ? data.blocks : [];
     const exportBlocks = removeSkippedImageBlocks(blocks, logger);
     const images = exportBlocks.filter((block) => block && block.type === "image" && block.src);
+    const videos = exportBlocks.filter((block) => block && block.type === "video" && block.src);
     const localizedImages = new Array(images.length);
+    const localizedVideos = new Array(videos.length);
 
     if (!hasExportableContent(exportBlocks)) {
       logger.warn("extract", "empty content");
@@ -585,9 +676,31 @@ if (typeof importScripts === "function") {
       failed: failedImages.length
     });
 
-    const rewrittenBlocks = utils.rewriteImageBlocks(exportBlocks, {
+    if (videos.length > 0) {
+      logger.info("video", "start", { total: videos.length });
+      for (let index = 0; index < videos.length; index += 1) {
+        localizedVideos[index] = await fetchVideo(videos[index], index, Object.assign({}, resolvedDeps, {
+          pageUrl: data.url
+        }));
+      }
+    }
+    const successfulVideos = localizedVideos.filter((video) => video.ok === true);
+    const failedVideos = localizedVideos.filter((video) => video.ok !== true);
+    if (videos.length > 0) {
+      logger.info("video", "complete", {
+        total: localizedVideos.length,
+        success: successfulVideos.length,
+        failed: failedVideos.length
+      });
+    }
+
+    const imageRewrittenBlocks = utils.rewriteImageBlocks(exportBlocks, {
       assetsDir: names.assetsDir,
       localizedImages
+    });
+    const rewrittenBlocks = utils.rewriteVideoBlocks(imageRewrittenBlocks, {
+      assetsDir: names.assetsDir,
+      localizedVideos
     });
     const markdown = core.toMarkdown({
       title: data.title,
@@ -611,20 +724,28 @@ if (typeof importScripts === "function") {
       });
     }
 
+    for (const video of successfulVideos) {
+      entries.push({
+        path: `${names.folderName}/${names.assetsDir}/${video.fileName}`,
+        data: video.data
+      });
+    }
+
     const zipBytes = zipWriter.createZip(entries);
     logger.info("zip", "success", {
       filename: names.zipName,
       entries: entries.length,
       bytes: zipBytes.length,
-      failedImages: failedImages.length
+      failedImages: failedImages.length,
+      failedVideos: failedVideos.length
     });
 
-    return { names, zipBytes, localizedImages, logText: logger.toText() };
+    return { names, zipBytes, localizedImages, localizedVideos, logText: logger.toText() };
   }
 
-  function responseSafeImages(localizedImages) {
-    return localizedImages.map((image) => {
-      const copy = Object.assign({}, image);
+  function responseSafeMedia(localizedMedia) {
+    return localizedMedia.map((media) => {
+      const copy = Object.assign({}, media);
       delete copy.data;
       return copy;
     });
@@ -703,7 +824,8 @@ if (typeof importScripts === "function") {
           sendResponse({
             ok: true,
             filename: result.names.zipName,
-            localizedImages: responseSafeImages(result.localizedImages),
+            localizedImages: responseSafeMedia(result.localizedImages),
+            localizedVideos: responseSafeMedia(result.localizedVideos),
             logText: logger.toText()
           });
         });
@@ -750,6 +872,7 @@ if (typeof importScripts === "function") {
     version: "0.2.0",
     injectContentScripts,
     fetchImage,
+    fetchVideo,
     buildExportZip,
     bytesToDataUrl,
     hasExportableContent

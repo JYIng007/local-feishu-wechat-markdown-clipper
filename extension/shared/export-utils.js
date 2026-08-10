@@ -112,6 +112,10 @@
     return `image-${pad(index + 1, 3)}${normalizeExtension(extension)}`;
   }
 
+  function videoFileName(index) {
+    return `video-${pad(index + 1, 3)}.mp4`;
+  }
+
   function rewriteImageBlocks(blocks, { assetsDir, localizedImages } = {}) {
     const queueBySource = new Map();
     for (const image of localizedImages || []) {
@@ -139,6 +143,33 @@
     });
   }
 
+  function rewriteVideoBlocks(blocks, { assetsDir, localizedVideos } = {}) {
+    const queueBySource = new Map();
+    for (const video of localizedVideos || []) {
+      if (video && video.originalSrc) {
+        const queue = queueBySource.get(video.originalSrc) || [];
+        queue.push(video);
+        queueBySource.set(video.originalSrc, queue);
+      }
+    }
+
+    return (blocks || []).map((block) => {
+      const copy = Object.assign({}, block);
+      if (!block || block.type !== "video") {
+        return copy;
+      }
+
+      const queue = queueBySource.get(block.src) || [];
+      const localized = queue.shift();
+      if (!localized || localized.ok !== true || !localized.fileName) {
+        return copy;
+      }
+
+      copy.src = `./${assetsDir}/${localized.fileName}`;
+      return copy;
+    });
+  }
+
   return {
     sanitizeTitle,
     formatTimestamp,
@@ -146,6 +177,8 @@
     extensionFromContentType,
     extensionFromUrl,
     imageFileName,
-    rewriteImageBlocks
+    videoFileName,
+    rewriteImageBlocks,
+    rewriteVideoBlocks
   };
 });

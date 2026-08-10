@@ -4,6 +4,12 @@ All notable public changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-10
+
+### Added
+
+- Added local download support for compatible course-page MP4 videos.
+
 ### Fixed
 
 - Fixed incomplete content extraction on some course pages.
