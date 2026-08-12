@@ -309,9 +309,11 @@ if (typeof importScripts === "function") {
       }
 
       if (block.type === "table") {
-        return (block.rows || []).some(
+        const hasText = (block.rows || []).some(
           (row) => Array.isArray(row) && row.some((cell) => String(cell || "").trim())
         );
+        const hasImages = (block.images || []).some((image) => image && image.src);
+        return hasText || hasImages;
       }
 
       return Boolean(String(block.text || "").trim());
@@ -332,6 +334,19 @@ if (typeof importScripts === "function") {
         continue;
       }
 
+      if (block && block.type === "table" && Array.isArray(block.images)) {
+        const copy = Object.assign({}, block);
+        copy.images = block.images.filter((image) => {
+          if (image && isInlineSvgDataImage(image.src)) {
+            skippedInlineSvgCount += 1;
+            return false;
+          }
+          return true;
+        });
+        keptBlocks.push(copy);
+        continue;
+      }
+
       keptBlocks.push(block);
     }
 
@@ -343,6 +358,18 @@ if (typeof importScripts === "function") {
     }
 
     return keptBlocks;
+  }
+
+  function collectImageBlocks(blocks) {
+    const images = [];
+    for (const block of blocks || []) {
+      if (block && block.type === "image" && block.src) {
+        images.push(block);
+      } else if (block && block.type === "table" && Array.isArray(block.images)) {
+        images.push(...block.images.filter((image) => image && image.src));
+      }
+    }
+    return images;
   }
 
   function getDeps(deps) {
@@ -629,7 +656,7 @@ if (typeof importScripts === "function") {
     const names = utils.createExportNames({ title: data.title });
     const blocks = Array.isArray(data.blocks) ? data.blocks : [];
     const exportBlocks = removeSkippedImageBlocks(blocks, logger);
-    const images = exportBlocks.filter((block) => block && block.type === "image" && block.src);
+    const images = collectImageBlocks(exportBlocks);
     const videos = exportBlocks.filter((block) => block && block.type === "video" && block.src);
     const localizedImages = new Array(images.length);
     const localizedVideos = new Array(videos.length);

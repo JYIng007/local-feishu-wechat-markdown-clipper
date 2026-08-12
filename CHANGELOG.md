@@ -4,6 +4,12 @@ All notable public changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-12
+
+### Fixed
+
+- Fixed image placement in some exported content.
+
 ## [0.4.0] - 2026-08-10
 
 ### Added

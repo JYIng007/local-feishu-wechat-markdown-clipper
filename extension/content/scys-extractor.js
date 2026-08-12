@@ -366,7 +366,7 @@
     return normalizeMarkdown(serializeInline(cell));
   }
 
-  function extractDivTable(item) {
+  function extractDivTable(item, core, sourcePrefix) {
     if (!item || typeof item.querySelector !== "function") {
       return null;
     }
@@ -382,9 +382,9 @@
       return null;
     }
 
-    const cells = Array.from(table.querySelectorAll(".table_cell"))
-      .filter((cell) => typeof cell.closest !== "function" || cell.closest(".table") === table)
-      .map(serializeTableCell);
+    const tableCells = Array.from(table.querySelectorAll(".table_cell"))
+      .filter((cell) => typeof cell.closest !== "function" || cell.closest(".table") === table);
+    const cells = tableCells.map(serializeTableCell);
     if (cells.length === 0) {
       return null;
     }
@@ -394,7 +394,26 @@
       const row = cells.slice(index, index + columnCount);
       rows.push(row.concat(Array(columnCount - row.length).fill("")));
     }
-    return { type: "table", rows };
+    const images = [];
+    for (let cellIndex = 0; cellIndex < tableCells.length; cellIndex += 1) {
+      const rowIndex = Math.floor(cellIndex / columnCount);
+      const columnIndex = cellIndex % columnCount;
+      const cellImages = imageBlocksFromItem(
+        tableCells[cellIndex],
+        core,
+        `${sourcePrefix}:table:${rowIndex}:${columnIndex}`,
+        false
+      );
+      for (const image of cellImages) {
+        images.push(Object.assign({}, image, { rowIndex, columnIndex }));
+      }
+    }
+
+    const block = { type: "table", rows, sourceId: `${sourcePrefix}:table` };
+    if (images.length > 0) {
+      block.images = images;
+    }
+    return block;
   }
 
   function rawImageSource(image) {
@@ -498,11 +517,13 @@
   }
 
   function blockFromItem(item, core, sourcePrefix, listDepth, directImagesOnly) {
-    const images = imageBlocksFromItem(item, core, sourcePrefix, directImagesOnly);
     const video = videoBlockFromItem(item, sourcePrefix, directImagesOnly);
     const blocks = [];
     const listItem = isListItem(item);
-    const structuredBlock = listItem ? null : extractCodeBlock(item) || extractDivTable(item);
+    const structuredBlock = listItem ? null : extractCodeBlock(item) || extractDivTable(item, core, sourcePrefix);
+    const images = structuredBlock && structuredBlock.type === "table"
+      ? []
+      : imageBlocksFromItem(item, core, sourcePrefix, directImagesOnly);
     const headingLevel = documentHeadingLevel(item);
 
     if (video) {

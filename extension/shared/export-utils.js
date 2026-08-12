@@ -126,19 +126,27 @@
       }
     }
 
+    function rewriteImage(image) {
+      const copy = Object.assign({}, image);
+      const queue = queueBySource.get(image && image.src) || [];
+      const localized = queue.shift();
+      if (localized && localized.ok === true && localized.fileName) {
+        copy.src = `./${assetsDir}/${localized.fileName}`;
+      }
+      return copy;
+    }
+
     return (blocks || []).map((block) => {
       const copy = Object.assign({}, block);
-      if (!block || block.type !== "image") {
+      if (!block) {
         return copy;
       }
-
-      const queue = queueBySource.get(block.src) || [];
-      const localized = queue.shift();
-      if (!localized || localized.ok !== true || !localized.fileName) {
-        return copy;
+      if (block.type === "image") {
+        return rewriteImage(block);
       }
-
-      copy.src = `./${assetsDir}/${localized.fileName}`;
+      if (block.type === "table" && Array.isArray(block.images)) {
+        copy.images = block.images.map(rewriteImage);
+      }
       return copy;
     });
   }

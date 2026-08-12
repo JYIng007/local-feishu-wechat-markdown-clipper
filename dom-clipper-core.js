@@ -443,7 +443,8 @@
       const cells = (block.rows || []).flatMap((row) => (Array.isArray(row) ? row : []));
       const nonEmptyCells = cells.filter((cell) => normalizeText(cell)).length;
       const textLength = cells.reduce((total, cell) => total + String(cell || "").length, 0);
-      return nonEmptyCells * 1000 + textLength;
+      const imageCount = Array.isArray(block.images) ? block.images.length : 0;
+      return (nonEmptyCells + imageCount) * 1000 + textLength;
     }
     return String(block.markdown || block.text || block.src || "").length;
   }
@@ -591,12 +592,37 @@
       .trim();
   }
 
-  function tableToMarkdown(rows) {
+  function tableToMarkdown(rows, images) {
     const normalizedRows = (rows || [])
       .filter((row) => Array.isArray(row) && row.length > 0)
       .map((row) => row.map(tableCellToMarkdown));
     if (normalizedRows.length === 0) {
       return "";
+    }
+
+    for (const image of images || []) {
+      const rowIndex = Number(image && image.rowIndex);
+      const columnIndex = Number(image && image.columnIndex);
+      if (
+        !image ||
+        !image.src ||
+        !Number.isInteger(rowIndex) ||
+        rowIndex < 0 ||
+        rowIndex >= normalizedRows.length ||
+        !Number.isInteger(columnIndex) ||
+        columnIndex < 0
+      ) {
+        continue;
+      }
+
+      while (normalizedRows[rowIndex].length <= columnIndex) {
+        normalizedRows[rowIndex].push("");
+      }
+      const markdown = `![${escapeMarkdownLabel(image.alt)}](${escapeMarkdownUrl(image.src)})`
+        .replace(/\|/g, "\\|");
+      normalizedRows[rowIndex][columnIndex] = normalizedRows[rowIndex][columnIndex]
+        ? `${normalizedRows[rowIndex][columnIndex]}<br>${markdown}`
+        : markdown;
     }
 
     const columnCount = normalizedRows.reduce((count, row) => Math.max(count, row.length), 0);
@@ -655,7 +681,7 @@
     }
 
     if (block.type === "table") {
-      return tableToMarkdown(block.rows);
+      return tableToMarkdown(block.rows, block.images);
     }
 
     return escapeMarkdownText(block.markdown || block.text);
